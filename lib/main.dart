@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/background_service.dart';
 import 'services/auth_service.dart';
 import 'views/auth_screen.dart';
@@ -11,12 +12,14 @@ import 'config/theme.dart';
 import 'views/stealth_screen.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+
+  // Load environment variables
+  await dotenv.load(fileName: ".env");
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   await initializeService();
 
@@ -77,7 +80,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<User?>();
-    
+
     if (user != null) {
       return FutureBuilder<bool>(
         future: _stealthFuture,
@@ -85,7 +88,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
               backgroundColor: Colors.white,
-              body: Center(child: CircularProgressIndicator(color: Colors.black)),
+              body: Center(
+                child: CircularProgressIndicator(color: Colors.black),
+              ),
             );
           }
           if (snapshot.data == true) {

@@ -12,9 +12,17 @@ import 'config/theme.dart';
 import 'views/stealth_screen.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/database_helper.dart';
+
+final GlobalKey<ScaffoldMessengerState> messengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Hive for local storage
+  await DatabaseHelper.init();
 
   // Load environment variables
   await dotenv.load(fileName: ".env");
@@ -23,7 +31,21 @@ void main() async {
 
   await initializeService();
 
+  // Seed default voice trigger on first install
+  await _seedDefaultVoiceTrigger();
+
   runApp(const MyApp());
+}
+
+/// Saves 'help' as the default trigger word if the user hasn't set any yet.
+Future<void> _seedDefaultVoiceTrigger() async {
+  final prefs = await SharedPreferences.getInstance();
+  final existing = prefs.getStringList('custom_voice_triggers') ?? [];
+  if (existing.isEmpty) {
+    await prefs.setStringList('custom_voice_triggers', ['help']);
+    await prefs.setBool('voice_trained', true);
+    debugPrint('Seeded default voice trigger: help');
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -41,6 +63,8 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'SafeStep',
+        scaffoldMessengerKey: messengerKey,
+        navigatorKey: navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         themeMode: ThemeMode.light,

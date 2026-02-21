@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../models/user_model.dart';
 import '../models/contact_model.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../services/database_helper.dart';
 
 class ContactsSetupScreen extends StatefulWidget {
   const ContactsSetupScreen({super.key});
@@ -25,6 +28,17 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
 
   Future<void> _loadUserContacts() async {
     try {
+      // 1. Try loading from SQLite first
+      final localContacts = await DatabaseHelper().getContacts();
+      if (localContacts.isNotEmpty && mounted) {
+        setState(() {
+          _selectedContacts = localContacts;
+          _isLoading = false;
+        });
+        debugPrint("Contacts: Loaded from SQLite");
+      }
+
+      // 2. Refresh from Firebase to ensure sync
       final authService = context.read<AuthService>();
       final user = authService.currentUser;
       if (user != null) {
@@ -34,6 +48,8 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
             _selectedContacts = List.from(userData.emergencyContacts);
             _isLoading = false;
           });
+          // Update SQLite if different
+          await DatabaseHelper().saveAllContacts(_selectedContacts);
           return;
         }
       }
@@ -49,20 +65,28 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
 
   Future<void> _pickContact() async {
     var status = await Permission.contacts.request();
-    
+
     if (status.isGranted) {
       try {
         final contact = await FlutterContacts.openExternalPick();
         if (contact != null) {
           final fullContact = await FlutterContacts.getContact(contact.id);
-          final phone = (fullContact?.phones.isNotEmpty ?? false) 
-              ? fullContact!.phones.first.number.replaceAll(RegExp(r'[^\d+]'), '') 
+          final phone = (fullContact?.phones.isNotEmpty ?? false)
+              ? fullContact!.phones.first.number.replaceAll(
+                  RegExp(r'[^\d+]'),
+                  '',
+                )
               : '';
-          
+
           if (phone.isNotEmpty) {
-             _addContact(fullContact?.displayName ?? "Unknown", phone);
+            _addContact(fullContact?.displayName ?? "Unknown", phone);
           } else {
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Selected contact has no phone number")));
+            if (mounted)
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Selected contact has no phone number"),
+                ),
+              );
           }
         }
       } catch (e) {
@@ -79,10 +103,18 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: const Text("Permission Required"),
-            content: const Text("Contact permission is permanently denied. Please enable it in settings to pick contacts."),
+            content: const Text(
+              "Contact permission is permanently denied. Please enable it in settings to pick contacts.",
+            ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-              TextButton(onPressed: () => openAppSettings(), child: const Text("Settings")),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              TextButton(
+                onPressed: () => openAppSettings(),
+                child: const Text("Settings"),
+              ),
             ],
           ),
         );
@@ -99,7 +131,10 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Add Contact Manually", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          "Add Contact Manually",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -119,18 +154,27 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel", style: TextStyle(color: Colors.black54)),
+            child: const Text(
+              "Cancel",
+              style: TextStyle(color: Colors.black54),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
-              if (nameController.text.isNotEmpty && phoneController.text.isNotEmpty) {
-                _addContact(nameController.text.trim(), phoneController.text.trim().replaceAll(RegExp(r'[^\d+]'), ''));
+              if (nameController.text.isNotEmpty &&
+                  phoneController.text.isNotEmpty) {
+                _addContact(
+                  nameController.text.trim(),
+                  phoneController.text.trim().replaceAll(RegExp(r'[^\d+]'), ''),
+                );
                 Navigator.pop(context);
               }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             child: const Text("Add"),
           ),
@@ -141,18 +185,26 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
 
   void _addContact(String name, String phone) {
     if (_selectedContacts.length >= 5) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Max 5 contacts allowed")));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Max 5 contacts allowed")));
       return;
     }
-    
+
     // Check if already exists
     if (_selectedContacts.any((c) => c.phone == phone)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Contact already added")));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Contact already added")));
       return;
     }
 
     setState(() {
-      _selectedContacts.add(ContactModel(name: name, phone: phone, relation: "Trusted"));
+      _selectedContacts.add(
+        ContactModel(name: name, phone: phone, relation: "Trusted"),
+      );
     });
   }
 
@@ -161,11 +213,27 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
     final user = authService.currentUser;
     if (user != null) {
       try {
+        // 1. ALWAYS save to SharedPreferences first (works in all isolates)
+        final prefs = await SharedPreferences.getInstance();
+        final String contactsJson = jsonEncode(
+          _selectedContacts.map((e) => e.toMap()).toList(),
+        );
+        await prefs.setString('cached_contacts', contactsJson);
+
+        // 2. Save to Firebase (online backup)
         await authService.updateContacts(user.uid, _selectedContacts);
+
+        // 3. Try SQLite as optional local cache (only works on main isolate)
+        try {
+          await DatabaseHelper().saveAllContacts(_selectedContacts);
+        } catch (e) {
+          debugPrint("SQLite save skipped (non-critical): $e");
+        }
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Trusted contacts updated successfully"),
+              content: Text("✅ Trusted contacts saved successfully!"),
               backgroundColor: Colors.green,
             ),
           );
@@ -186,7 +254,10 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Trusted Contacts", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+        title: const Text(
+          "Trusted Contacts",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+        ),
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
@@ -200,7 +271,10 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
                   child: Text(
                     "Add up to 5 trusted contacts who will receive your SOS alerts.",
                     style: TextStyle(
@@ -210,9 +284,9 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
                   ),
                 ),
                 Expanded(
-                  child: _selectedContacts.isEmpty 
-                    ? _buildEmptyState()
-                    : _buildContactsList(),
+                  child: _selectedContacts.isEmpty
+                      ? _buildEmptyState()
+                      : _buildContactsList(),
                 ),
                 _buildActionButtons(),
               ],
@@ -225,11 +299,19 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.contact_phone_outlined, size: 80, color: Colors.black.withOpacity(0.1)),
+          Icon(
+            Icons.contact_phone_outlined,
+            size: 80,
+            color: Colors.black.withOpacity(0.1),
+          ),
           const SizedBox(height: 24),
           const Text(
             "No Trusted Contacts",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black54),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+            ),
           ),
           const SizedBox(height: 8),
           Padding(
@@ -259,7 +341,10 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
             border: Border.all(color: Colors.black.withOpacity(0.05)),
           ),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 4,
+            ),
             leading: CircleAvatar(
               backgroundColor: Colors.black.withOpacity(0.05),
               child: const Icon(Icons.person_outline, color: Colors.black),
@@ -273,7 +358,10 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
               style: TextStyle(color: Colors.black.withOpacity(0.5)),
             ),
             trailing: IconButton(
-              icon: Icon(Icons.delete_outline, color: Colors.red.withOpacity(0.7)),
+              icon: Icon(
+                Icons.delete_outline,
+                color: Colors.red.withOpacity(0.7),
+              ),
               onPressed: () {
                 setState(() {
                   _selectedContacts.removeAt(index);
@@ -311,7 +399,9 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
                   label: const Text("Phone Book"),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     side: const BorderSide(color: Colors.black12),
                     foregroundColor: Colors.black,
                   ),
@@ -325,7 +415,9 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
                   label: const Text("Manual"),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     side: const BorderSide(color: Colors.black12),
                     foregroundColor: Colors.black,
                   ),
@@ -340,10 +432,15 @@ class _ContactsSetupScreenState extends State<ContactsSetupScreen> {
               backgroundColor: Colors.black,
               foregroundColor: Colors.white,
               minimumSize: const Size(double.infinity, 56),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 0,
             ),
-            child: const Text("Save and Update", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            child: const Text(
+              "Save and Update",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
           ),
         ],
       ),

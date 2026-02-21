@@ -24,10 +24,20 @@ class EmergencyDetector {
   int _volumeHoldScore = 0;
   DateTime? _lastHoldEvent;
 
-  Future<void> startMonitoring() async {
-    if (_isMonitoring) return;
+  Future<void> startMonitoring({bool forceRestart = false}) async {
+    if (_isMonitoring && !forceRestart) return;
+    if (_isMonitoring && forceRestart) {
+      debugPrint(
+        "EmergencyDetector: Force-restarting monitoring in foreground...",
+      );
+      _accelSubscription?.cancel();
+      _volumeSubscription?.cancel();
+      _accelSubscription = null;
+      _volumeSubscription = null;
+      _isMonitoring = false;
+    }
     _isMonitoring = true;
-    debugPrint("Starting Emergency Monitoring...");
+    debugPrint("EmergencyDetector: Starting Emergency Monitoring...");
 
     final prefs = await SharedPreferences.getInstance();
 
@@ -51,46 +61,64 @@ class EmergencyDetector {
       debugPrint("EmergencyDetector: Shake Detection Error: $e");
     }
 
-    // 2. Hardware Button (Volume) Triggers
+    // 2. Physical Button Triggers
     try {
       if (prefs.getBool('hold_button_enabled') ?? true) {
-        _volumeSubscription = PerfectVolumeControl.stream.listen((volume) {
-          final now = DateTime.now();
+        String triggerType = prefs.getString('button_trigger_type') ?? 'volume';
+        debugPrint(
+          "EmergencyDetector: Initializing Button Trigger ($triggerType)...",
+        );
 
-          // Logic for rapid clicks
-          if (_lastVolumeClick == null ||
-              now.difference(_lastVolumeClick!) <
-                  const Duration(milliseconds: 1000)) {
-            _volumeClickCount++;
-          } else {
-            _volumeClickCount = 1;
-          }
-          _lastVolumeClick = now;
+        if (triggerType == 'volume') {
+          // Setting hideUI to false can sometimes help background stream registration
+          PerfectVolumeControl.hideUI = false;
 
-          if (_volumeClickCount >= 5) {
-            // 5 rapid clicks for SOS
-            debugPrint("EmergencyDetector: RAPID BUTTON PRESS DETECTED");
-            _volumeClickCount = 0;
-            AlertService().triggerAlert();
-          }
+          _volumeSubscription = PerfectVolumeControl.stream.listen((volume) {
+            final now = DateTime.now();
+            debugPrint("EmergencyDetector: Volume Event -> $volume");
 
-          // Logic for fake "hold" (rapid stream firing)
-          if (_lastHoldEvent != null &&
-              now.difference(_lastHoldEvent!) <
-                  const Duration(milliseconds: 100)) {
-            _volumeHoldScore++;
-          } else {
-            _volumeHoldScore = 0;
-          }
-          _lastHoldEvent = now;
+            // Logic for rapid clicks (5 times)
+            if (_lastVolumeClick == null ||
+                now.difference(_lastVolumeClick!) <
+                    const Duration(milliseconds: 1000)) {
+              _volumeClickCount++;
+            } else {
+              _volumeClickCount = 1;
+            }
+            _lastVolumeClick = now;
 
-          if (_volumeHoldScore >= 10) {
-            // Steady stream of volume changes
-            debugPrint("EmergencyDetector: BUTTON HOLD DETECTED");
-            _volumeHoldScore = 0;
-            AlertService().triggerAlert();
-          }
-        });
+            if (_volumeClickCount >= 5) {
+              debugPrint(
+                "🚨 EmergencyDetector: RAPID VOLUME PRESS DETECTED (5x)",
+              );
+              _volumeClickCount = 0;
+              AlertService().triggerAlert();
+            }
+
+            // Logic for "hold" (rapid stream firing)
+            if (_lastHoldEvent != null &&
+                now.difference(_lastHoldEvent!) <
+                    const Duration(milliseconds: 100)) {
+              _volumeHoldScore++;
+            } else {
+              _volumeHoldScore = 0;
+            }
+            _lastHoldEvent = now;
+
+            if (_volumeHoldScore >= 10) {
+              debugPrint("🚨 EmergencyDetector: VOLUME BUTTON HOLD DETECTED");
+              _volumeHoldScore = 0;
+              AlertService().triggerAlert();
+            }
+          });
+          debugPrint("EmergencyDetector: Volume listener attached.");
+        } else if (triggerType == 'power') {
+          debugPrint(
+            "EmergencyDetector: Power button monitoring active via System SOS.",
+          );
+          // Note: Power button monitoring usually requires high-level system permissions
+          // We recommend users enable "Emergency SOS" (5-press power) in Android Settings.
+        }
       }
     } catch (e) {
       debugPrint("EmergencyDetector: Button Trigger Error: $e");
@@ -107,9 +135,10 @@ class EmergencyDetector {
     // 4. Voice Command
     try {
       if (prefs.getBool('voice_enabled') ?? true) {
+        debugPrint("EmergencyDetector: Initializing Voice Service...");
         await VoiceService().init();
         await VoiceService().startListening();
-        debugPrint("Voice detection active.");
+        debugPrint("EmergencyDetector: Voice recognition requested.");
       }
     } catch (e) {
       debugPrint("EmergencyDetector: Voice Service Error: $e");
@@ -120,8 +149,12 @@ class EmergencyDetector {
     _isMonitoring = false;
     _accelSubscription?.cancel();
     _volumeSubscription?.cancel();
+    _accelSubscription = null;
+    _volumeSubscription = null;
     VoiceService().stopListening();
     GestureClassifier().stop();
     _volumeClickCount = 0;
+    _volumeHoldScore = 0;
+    debugPrint("EmergencyDetector: Monitoring stopped.");
   }
 }

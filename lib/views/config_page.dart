@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/shake_trainer.dart';
 import '../services/background_service.dart';
@@ -19,6 +21,7 @@ class _ConfigurationPageState extends State<ConfigurationPage> {
   bool _isShakeEnabled = true;
   bool _isVoiceEnabled = true;
   bool _isHoldButtonEnabled = true;
+  String _selectedButtonTrigger = 'volume'; // 'volume', 'power', or 'both'
 
   double _trainingProgress = 0.0;
   bool _isTraining = false;
@@ -36,29 +39,48 @@ class _ConfigurationPageState extends State<ConfigurationPage> {
       _isShakeEnabled = prefs.getBool('shake_enabled') ?? true;
       _isVoiceEnabled = prefs.getBool('voice_enabled') ?? true;
       _isHoldButtonEnabled = prefs.getBool('hold_button_enabled') ?? true;
+      _selectedButtonTrigger =
+          prefs.getString('button_trigger_type') ?? 'volume';
     });
   }
 
   Future<void> _saveSetting(String key, bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
+    await prefs.setBool(key, value); // Save FIRST, before anything reads it
+
     setState(() {
       if (key == 'background_service_active') _isBackgroundActive = value;
       if (key == 'shake_enabled') _isShakeEnabled = value;
-      if (key == 'voice_enabled') {
-        _isVoiceEnabled = value;
-        if (value) {
-          VoiceService().init().then((_) => VoiceService().startListening());
-        } else {
-          VoiceService().stopListening();
-        }
-      }
+      if (key == 'voice_enabled') _isVoiceEnabled = value;
       if (key == 'hold_button_enabled') _isHoldButtonEnabled = value;
     });
 
-    // Refresh detector if monitoring is active
+    // Handle voice toggle directly — do NOT restart EmergencyDetector
+    // because that would re-read prefs and restart voice regardless
+    if (key == 'voice_enabled') {
+      if (value) {
+        debugPrint('Config: Voice enabled — starting VoiceService');
+        await VoiceService().init();
+        await VoiceService().startListening();
+      } else {
+        debugPrint(
+          'Config: Voice disabled — stopping VoiceService permanently',
+        );
+        VoiceService()
+            .stopListening(); // sets _isActive = false, kills restart loop
+      }
+      // Notify background service to sync the setting
+      if (!kIsWeb) FlutterBackgroundService().invoke('refreshSettings');
+      return; // Don't do the full detector restart below for voice toggle
+    }
+
+    // For other settings (shake, buttons), restart the detector to pick up the change
     EmergencyDetector().stopMonitoring();
-    EmergencyDetector().startMonitoring();
+    await EmergencyDetector().startMonitoring();
+
+    if (!kIsWeb) {
+      FlutterBackgroundService().invoke('refreshSettings');
+    }
   }
 
   void _startShakeTraining() {
@@ -156,10 +178,77 @@ class _ConfigurationPageState extends State<ConfigurationPage> {
           const SizedBox(height: 16),
           _buildTriggerCard(
             Icons.touch_app_outlined,
-            "Button Press Hold",
-            "Trigger alert by long-pressing any volume key or the power button (if configured).",
+            "Physical Button Trigger",
+            "Select which physical button you want to use for emergency alerts.",
             _isHoldButtonEnabled,
             (val) => _saveSetting('hold_button_enabled', val),
+            action: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Choose Trigger Method:",
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'volume',
+                        label: Text("Volume Key"),
+                        icon: Icon(Icons.volume_up, size: 16),
+                      ),
+                      ButtonSegment(
+                        value: 'power',
+                        label: Text("Power Button"),
+                        icon: Icon(Icons.power_settings_new, size: 16),
+                      ),
+                    ],
+                    selected: {_selectedButtonTrigger},
+                    onSelectionChanged: (Set<String> newSelection) async {
+                      final val = newSelection.first;
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('button_trigger_type', val);
+                      setState(() => _selectedButtonTrigger = val);
+
+                      if (!kIsWeb) {
+                        FlutterBackgroundService().invoke('refreshSettings');
+                      }
+                    },
+                    style: SegmentedButton.styleFrom(
+                      selectedBackgroundColor: Colors.black,
+                      selectedForegroundColor: Colors.white,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ),
+                if (_selectedButtonTrigger == 'power')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      "Note: On most devices, pressing Power 5 times is the system's built-in SOS. SafeStep will monitor this if supported by your hardware.",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.blue.shade700,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                if (_selectedButtonTrigger == 'volume')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      "Hold either Volume Up or Down vigorously to trigger SOS.",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.green.shade700,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 32),

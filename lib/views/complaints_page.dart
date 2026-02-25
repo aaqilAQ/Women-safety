@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
+import '../models/complaint_model.dart';
+import '../models/user_model.dart';
 
 class ComplaintsPage extends StatefulWidget {
   const ComplaintsPage({super.key});
@@ -22,31 +25,66 @@ class _ComplaintsPageState extends State<ComplaintsPage> {
 
     try {
       final authService = context.read<AuthService>();
-      final user = authService.currentUser;
-      
-      if (user != null) {
-        await FirebaseFirestore.instance.collection('complaints').add({
-          'userId': user.uid,
-          'email': user.email,
-          'complaint': _complaintController.text.trim(),
-          'timestamp': FieldValue.serverTimestamp(),
-          'status': 'pending',
-        });
+      final currentUser = authService.currentUser;
+
+      if (currentUser != null) {
+        // 1. Fetch full user data to get Name and Phone
+        UserModel? userData = await authService.getUser(currentUser.uid);
+
+        // 2. Try to get current location
+        Position? position;
+        try {
+          LocationPermission permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+          }
+          if (permission == LocationPermission.whileInUse ||
+              permission == LocationPermission.always) {
+            position = await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.high,
+              timeLimit: const Duration(seconds: 5),
+            );
+          }
+        } catch (e) {
+          debugPrint("Location fetch failed for complaint: $e");
+        }
+
+        // 3. Create and push the complaint
+        final complaint = ComplaintModel(
+          id: '', // Firestore will generate
+          userId: currentUser.uid,
+          userName: userData?.name ?? 'Unknown',
+          userPhone: userData?.phone ?? 'N/A',
+          userEmail: currentUser.email ?? 'N/A',
+          complaint: _complaintController.text.trim(),
+          timestamp: DateTime.now(),
+          latitude: position?.latitude,
+          longitude: position?.longitude,
+        );
+
+        await FirestoreService().registerComplaint(complaint);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Complaint submitted successfully. We will look into it."),
+              content: Text(
+                "Complaint submitted successfully. We will look into it shortly.",
+              ),
               backgroundColor: Colors.green,
             ),
           );
           Navigator.pop(context);
         }
+      } else {
+        throw Exception("You must be logged in to submit a complaint.");
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to submit complaint: $e")),
+          SnackBar(
+            content: Text("Failed to submit complaint: $e"),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -59,7 +97,10 @@ class _ComplaintsPageState extends State<ComplaintsPage> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Report a Complaint", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+        title: const Text(
+          "Report a Complaint",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+        ),
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
@@ -81,7 +122,10 @@ class _ComplaintsPageState extends State<ComplaintsPage> {
               const SizedBox(height: 8),
               Text(
                 "Please describe your issue or suggestion in detail. Our team will review it shortly.",
-                style: TextStyle(color: Colors.black.withOpacity(0.5), fontSize: 16),
+                style: TextStyle(
+                  color: Colors.black.withOpacity(0.5),
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 32),
               TextFormField(
@@ -93,11 +137,15 @@ class _ComplaintsPageState extends State<ComplaintsPage> {
                   fillColor: Colors.grey.shade50,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Colors.black.withOpacity(0.1)),
+                    borderSide: BorderSide(
+                      color: Colors.black.withOpacity(0.1),
+                    ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Colors.black.withOpacity(0.1)),
+                    borderSide: BorderSide(
+                      color: Colors.black.withOpacity(0.1),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -121,16 +169,27 @@ class _ComplaintsPageState extends State<ComplaintsPage> {
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(double.infinity, 56),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   elevation: 0,
                 ),
                 child: _isSubmitting
                     ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
                       )
-                    : const Text("Submit Complaint", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    : const Text(
+                        "Submit Complaint",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
               ),
             ],
           ),

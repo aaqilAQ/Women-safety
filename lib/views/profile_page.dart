@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/auth_service.dart';
 import '../services/sms_service.dart';
 import '../models/user_model.dart';
+import '../services/emergency_detector.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -123,7 +124,13 @@ class _ProfilePageState extends State<ProfilePage> {
 
               const SizedBox(height: 40),
               ElevatedButton(
-                onPressed: () => authService.signOut(),
+                onPressed: () async {
+                  EmergencyDetector().stopMonitoring();
+                  await authService.signOut();
+                  if (context.mounted) {
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red.shade50,
                   foregroundColor: Colors.red,

@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/shake_trainer.dart';
-import '../services/background_service.dart';
 import 'complaints_page.dart';
 import 'voice_training_page.dart';
+import 'shake_training_page.dart';
 import '../services/voice_service.dart';
 import '../services/emergency_detector.dart';
 
@@ -22,9 +21,6 @@ class _ConfigurationPageState extends State<ConfigurationPage> {
   bool _isVoiceEnabled = true;
   bool _isHoldButtonEnabled = true;
   String _selectedButtonTrigger = 'volume'; // 'volume', 'power', or 'both'
-
-  double _trainingProgress = 0.0;
-  bool _isTraining = false;
 
   @override
   void initState() {
@@ -83,25 +79,10 @@ class _ConfigurationPageState extends State<ConfigurationPage> {
     }
   }
 
-  void _startShakeTraining() {
-    setState(() {
-      _isTraining = true;
-      _trainingProgress = 0.0;
-    });
-
-    ShakeTrainer().startTraining(
-      (progress) {
-        setState(() => _trainingProgress = progress);
-      },
-      () {
-        setState(() => _isTraining = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Shake Pattern Calibrated Successfully!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      },
+  void _openShakeTraining() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ShakeTrainingPage()),
     );
   }
 
@@ -142,16 +123,11 @@ class _ConfigurationPageState extends State<ConfigurationPage> {
             "Trigger alert by shaking your phone vigorously.",
             _isShakeEnabled,
             (val) => _saveSetting('shake_enabled', val),
-            action: _isTraining
-                ? LinearProgressIndicator(
-                    value: _trainingProgress,
-                    borderRadius: BorderRadius.circular(10),
-                  )
-                : TextButton.icon(
-                    onPressed: _startShakeTraining,
-                    icon: const Icon(Icons.model_training, size: 18),
-                    label: const Text("Train Sensitivity"),
-                  ),
+            action: TextButton.icon(
+              onPressed: _openShakeTraining,
+              icon: const Icon(Icons.model_training, size: 18),
+              label: const Text("Train Shake Pattern"),
+            ),
           ),
 
           const SizedBox(height: 16),

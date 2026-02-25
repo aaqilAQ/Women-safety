@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Users collection ───────────────────────────────────────────────────
+    // Users can only read/write their own profile document.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Complaints collection ──────────────────────────────────────────────
+    // Any authenticated user can CREATE a complaint.
+    // Only the author can READ their own complaints.
+    // Nobody can UPDATE or DELETE complaints (admin would use console or backend).
+    match /complaints/{complaintId} {
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow read:   if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ── Alerts collection ──────────────────────────────────────────────────
+    // Any authenticated user can CREATE an alert.
+    // Only the author can READ their own alerts.
+    match /alerts/{alertId} {
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow read:   if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ── Default: deny everything else ──────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

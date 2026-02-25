@@ -35,6 +35,18 @@ class VoiceService {
   }
 
   Future<void> startListening() async {
+    // Double-check: if user has disabled voice, do NOT start
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool('voice_enabled') ?? true;
+    if (!enabled) {
+      debugPrint(
+        'VoiceService: startListening() aborted — voice_enabled=false',
+      );
+      _isActive = false;
+      _listeningController.add(false);
+      return;
+    }
+
     _isActive = true;
 
     if (!_isInitialized) {
@@ -102,6 +114,21 @@ class VoiceService {
 
   Future<void> _beginListening() async {
     if (_isListening || !_isActive) return;
+
+    // Re-verify preference before each listening cycle
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('voice_enabled') ?? true;
+      if (!enabled) {
+        debugPrint(
+          'VoiceService: _beginListening() aborted — voice_enabled=false',
+        );
+        _isActive = false;
+        _listeningController.add(false);
+        return;
+      }
+    } catch (_) {}
+
     if (_speech.isListening) {
       await _speech.cancel();
       await Future.delayed(const Duration(milliseconds: 300));

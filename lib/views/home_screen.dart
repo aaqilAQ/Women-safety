@@ -16,6 +16,7 @@ import 'contacts_detail_page.dart';
 import 'contacts_screen.dart';
 import 'complaints_page.dart';
 import 'voice_training_page.dart';
+import 'shake_training_page.dart';
 import '../services/emergency_detector.dart';
 import '../services/voice_service.dart';
 
@@ -164,9 +165,12 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showLogoutDialog() {
+    // Capture AuthService from the HomeScreen's context BEFORE opening dialog
+    final authService = context.read<AuthService>();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
@@ -176,16 +180,26 @@ class _HomeScreenState extends State<HomeScreen>
         content: const Text("Are you sure you want to sign out?"),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text(
               "Cancel",
               style: TextStyle(color: Colors.black54),
             ),
           ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.read<AuthService>().signOut();
+            onPressed: () async {
+              Navigator.pop(dialogContext); // Close dialog first
+
+              // Stop all monitoring before sign out
+              EmergencyDetector().stopMonitoring();
+
+              // Sign out — AuthWrapper will automatically show AuthScreen
+              await authService.signOut();
+
+              // Pop all routes back to root (AuthWrapper)
+              if (context.mounted) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.black,
@@ -558,7 +572,7 @@ class _HomeScreenState extends State<HomeScreen>
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const ConfigurationPage(),
+                builder: (context) => const ShakeTrainingPage(),
               ),
             );
           }),

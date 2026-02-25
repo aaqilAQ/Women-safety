@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'sms_service.dart';
+import 'firestore_service.dart';
 import 'package:flutter/material.dart';
 import '../main.dart'; // Access global messengerKey, navigatorKey
 
@@ -98,7 +100,25 @@ class AlertService {
       String finalMessage =
           "🚨 EMERGENCY 🚨\n$name needs HELP!\nLocation: $locString";
 
-      // 4. Send SMS Process
+      // 4. Log to Firestore (REAL-TIME TRACKING)
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirestoreService().logAlertEvent(
+            userId: user.uid,
+            triggerType: "emergency_trigger",
+            latitude: position?.latitude,
+            longitude: position?.longitude,
+            locationText: locString,
+            smsSent: true,
+          );
+          debugPrint("AlertService: Alert event logged to Firestore.");
+        }
+      } catch (e) {
+        debugPrint("AlertService: Firestore logging failed: $e");
+      }
+
+      // 5. Send SMS Process
       debugPrint(
         "AlertService: Sending SOS messages to ${contacts.length} recipients...",
       );

@@ -26,9 +26,9 @@ dependencies:
   tflite_flutter: ^0.12.1
   speech_to_text: ^7.3.0
   flutter_background_service: ^5.0.5
-  firebase_core: ^2.24.2
-  firebase_auth: ^4.15.3
-  cloud_firestore: ^4.13.6
+  firebase_core: ^3.13.0
+  firebase_auth: ^5.5.4
+  cloud_firestore: ^5.6.7
   url_launcher: ^6.2.4
   provider: ^6.0.0
   record: ^6.1.2
@@ -44,6 +44,7 @@ dependencies:
     path: ./plugins/sms_sender
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+  intl: ^0.20.2
 
 
 
